@@ -1,0 +1,12 @@
+[package]
+name = "supercollider"
+version = "0.1.0"
+authors = ["Octavia Togami <octavia.togami@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+nalgebra = "0.25"
+rand = "0.8"
+
+[profile.release]
+debug = true
