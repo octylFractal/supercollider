@@ -3,34 +3,62 @@ use na::{
     U3,
 };
 
-use crate::shape::{ConvexShape, SupportProvider, ToConvexShapes};
+use crate::shape::{ConvexShape, SupportProvider};
 
-pub trait GJK<R: DimName, SB: ToConvexShapes<R>>
+pub trait GJK<'a, R, SB>
 where
     DefaultAllocator: Allocator<f64, R>,
+    R: DimName,
+    Self: IntoIterator<Item = &'a dyn ConvexShape<R>>,
+    SB: IntoIterator<Item = &'a dyn ConvexShape<R>>,
 {
-    fn check_collision(&self, other: &SB) -> bool;
+    fn check_collision(self, other: SB) -> bool;
 }
 
-impl<SA, SB> GJK<U2, SB> for SA
+impl<'a, SA, SB> GJK<'a, U2, SB> for SA
 where
     DefaultAllocator: Allocator<f64, U2>,
-    SA: ToConvexShapes<U2>,
-    SB: ToConvexShapes<U2>,
+    SA: Iterator<Item = &'a dyn ConvexShape<U2>>,
+    SB: Iterator<Item = &'a dyn ConvexShape<U2>>,
 {
-    fn check_collision(&self, other: &SB) -> bool {
-        // cache other's shapes
-        let other_shapes = other.to_convex_shapes();
+    fn check_collision(self, other: SB) -> bool {
+        // cache other's shapes if needed
+        let other_shapes = OtherShapeCache::from(other);
         // fun quadratic time op
-        for self_shape in self.to_convex_shapes() {
-            for other_shape in other_shapes.iter() {
-                if gjk_single(self_shape, *other_shape) {
-                    return true;
+        for self_shape in self {
+            match &other_shapes {
+                OtherShapeCache::Zero => return false,
+                OtherShapeCache::Single(s) => return gjk_single(self_shape, *s),
+                OtherShapeCache::Many(v) => {
+                    for other_shape in v.iter() {
+                        if gjk_single(self_shape, *other_shape) {
+                            return true;
+                        }
+                    }
                 }
             }
         }
 
         false
+    }
+}
+
+enum OtherShapeCache<'a> {
+    Zero,
+    Single(&'a dyn ConvexShape<U2>),
+    Many(Vec<&'a dyn ConvexShape<U2>>),
+}
+
+impl<'a, I> From<I> for OtherShapeCache<'a>
+where
+    I: Iterator<Item = &'a dyn ConvexShape<U2>>,
+{
+    fn from(mut iter: I) -> Self {
+        match iter.size_hint() {
+            (0, Some(0)) => OtherShapeCache::Zero,
+            (1, Some(1)) => OtherShapeCache::Single(iter.next().unwrap()),
+            _ => OtherShapeCache::Many(iter.collect()),
+        }
     }
 }
 
@@ -48,11 +76,10 @@ where
         }
     };
 
-    let mut simplex = Vec::<Vector3<f64>>::with_capacity(3);
-    simplex.push(support(&*a_sp, &*b_sp, d).to_homogeneous());
+    let first_point = support(&*a_sp, &*b_sp, d).to_homogeneous();
     let origin: Point3<f64> = Point3::origin();
     d = match Unit::try_new(
-        Vector2::from_homogeneous(&origin.coords - &simplex[0]).unwrap(),
+        Vector2::from_homogeneous(&origin.coords - &first_point).unwrap(),
         1.0e-6,
     ) {
         Some(v) => v,
@@ -62,54 +89,72 @@ where
         }
     };
 
+    let mut simplex = Simplex::Point(first_point);
+
     loop {
         let new_point = support(&*a_sp, &*b_sp, d.clone());
         if new_point.dot(&d) < 0.0 {
             // Failed to cross the origin line
             return false;
         }
-        simplex.push(new_point.to_homogeneous());
-        match simplex.as_slice() {
-            [b, a] => {
+        simplex = simplex.add(new_point.to_homogeneous());
+        simplex = match simplex {
+            Simplex::Point(_) => unreachable!(),
+            Simplex::Line(b, a) => {
                 // No triangle yet
-                let ab: Vector3<f64> = b - a;
-                let ao: Vector3<f64> = (&origin.coords) - a;
+                let ab: Vector3<f64> = &b - &a;
+                let ao: Vector3<f64> = (&origin.coords) - &a;
                 let ab_perp = triple_product(&ab, &ao, &ab);
-                d = match handle_redirect(b, a, ab, ab_perp) {
+                d = match handle_redirect(&b, &a, ab, ab_perp) {
                     Ok(v) => v,
                     Err(e) => return e,
                 };
+                Simplex::Line(b, a)
             }
-            [c, b, a] => {
+            Simplex::Triangle(c, b, a) => {
                 // Triangle formed, validate
-                let ab: Vector3<f64> = b - a;
-                let ac: Vector3<f64> = c - a;
-                let ao: Vector3<f64> = (&origin.coords) - a;
+                let ab: Vector3<f64> = &b - &a;
+                let ac: Vector3<f64> = &c - &a;
+                let ao: Vector3<f64> = (&origin.coords) - &a;
                 let ab_perp = ac.cross(&ab).cross(&ab);
                 let ac_perp = ab.cross(&ac).cross(&ac);
                 // check region AB
                 if ab_perp.dot(&ao) > 0.0 {
                     // It's outside the simplex, shift simplex forward
-                    d = match handle_redirect(b, a, ab, ab_perp) {
+                    d = match handle_redirect(&b, &a, ab, ab_perp) {
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    simplex.remove(0);
-                    continue;
+                    Simplex::Line(b, a)
                 }
                 // check region AC
-                if ac_perp.dot(&ao) > 0.0 {
+                else if ac_perp.dot(&ao) > 0.0 {
                     // It's outside the simplex, shift simplex forward
-                    d = match handle_redirect(c, a, ac, ac_perp) {
+                    d = match handle_redirect(&c, &a, ac, ac_perp) {
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    simplex.remove(1);
-                    continue;
+                    Simplex::Line(c, a)
+                } else {
+                    return true;
                 }
-                return true;
             }
-            _ => unreachable!(),
+        }
+    }
+}
+
+enum Simplex {
+    Point(Vector3<f64>),
+    Line(Vector3<f64>, Vector3<f64>),
+    Triangle(Vector3<f64>, Vector3<f64>, Vector3<f64>),
+}
+
+impl Simplex {
+    fn add(self, point: Vector3<f64>) -> Self {
+        match self {
+            Simplex::Point(a) => Simplex::Line(a, point),
+            Simplex::Line(a, b) => Simplex::Triangle(a, b, point),
+            Simplex::Triangle(_, _, _) => panic!("Triangle can't get another point"),
         }
     }
 }

@@ -40,28 +40,3 @@ where
     }
     Point::from(maximum.unwrap().0.clone())
 }
-
-/// A concave shape that can be broken down into multiple convex shapes.
-/// N, R, S are the same as with Vector
-pub trait ConcaveShape<R: DimName>: ToConvexShapes<R>
-where
-    DefaultAllocator: Allocator<f64, R>,
-{
-}
-
-pub trait ToConvexShapes<R: DimName>
-where
-    DefaultAllocator: Allocator<f64, R>,
-{
-    /// Break this shape down into convex shapes
-    fn to_convex_shapes(&self) -> Vec<&dyn ConvexShape<R>>;
-}
-
-impl<R: DimName, T: ConvexShape<R>> ToConvexShapes<R> for T
-where
-    DefaultAllocator: Allocator<f64, R>,
-{
-    fn to_convex_shapes(&self) -> Vec<&dyn ConvexShape<R>> {
-        vec![self]
-    }
-}

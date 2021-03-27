@@ -5,7 +5,8 @@ use na::{Point2, U2};
 use crate::circle::Circle;
 use crate::gjk::GJK;
 use crate::rect::Rect;
-use crate::shape::{ConvexShape, ToConvexShapes};
+use crate::shape::ConvexShape;
+use std::iter::Once;
 
 mod circle;
 mod gjk;
@@ -17,7 +18,7 @@ fn main() {
     for _ in 0..10_000_000 {
         let shape_a = random_shape();
         let shape_b = random_shape();
-        collision_hash += shape_a.check_collision(&shape_b) as i32;
+        collision_hash += shape_a.iter().check_collision(shape_b.iter()) as i32;
     }
     eprintln!("{:?}", collision_hash);
 }
@@ -41,11 +42,11 @@ enum RandomShape {
     Circle(Circle),
 }
 
-impl ToConvexShapes<U2> for RandomShape {
-    fn to_convex_shapes(&self) -> Vec<&dyn ConvexShape<U2>> {
+impl RandomShape {
+    fn iter<'a>(&'a self) -> Once<&'a dyn ConvexShape<U2>> {
         match self {
-            RandomShape::Rect(r) => r.to_convex_shapes(),
-            RandomShape::Circle(c) => c.to_convex_shapes(),
+            RandomShape::Rect(ref r) => std::iter::once(r),
+            RandomShape::Circle(ref c) => std::iter::once(c),
         }
     }
 }
