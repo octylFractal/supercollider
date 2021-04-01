@@ -10,3 +10,6 @@ rand = "0.8"
 
 [profile.release]
 debug = true
+lto = "thin"
+opt-level = 3
+panic = "abort"
