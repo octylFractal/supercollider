@@ -15,13 +15,13 @@ impl Circle {
     }
 }
 
-impl<'a> ConvexShape<U2> for Circle {
+impl<'a> ConvexShape<U2, CircleSupportProvider<'a>> for &'a Circle {
     fn center(&self) -> Point2<f64> {
         self.center.clone()
     }
 
-    fn support_provider(&self) -> Box<dyn SupportProvider<U2> + '_> {
-        Box::from(CircleSupportProvider { owner: self })
+    fn support_provider(&self) -> CircleSupportProvider<'a> {
+        CircleSupportProvider { owner: self }
     }
 }
 

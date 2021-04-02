@@ -1,70 +1,16 @@
 use na::{
     allocator::Allocator, DefaultAllocator, DimName, Point3, Unit, Vector2, Vector3, VectorN, U2,
-    U3,
 };
 
 use crate::shape::{ConvexShape, SupportProvider};
 
-pub trait GJK<'a, R, SB>
-where
-    DefaultAllocator: Allocator<f64, R>,
-    R: DimName,
-    Self: IntoIterator<Item = &'a dyn ConvexShape<R>>,
-    SB: IntoIterator<Item = &'a dyn ConvexShape<R>>,
-{
-    fn check_collision(self, other: SB) -> bool;
-}
-
-impl<'a, SA, SB> GJK<'a, U2, SB> for SA
+pub fn check_collision<SA, SB, SPA, SPB>(a: &SA, b: &SB) -> bool
 where
     DefaultAllocator: Allocator<f64, U2>,
-    SA: Iterator<Item = &'a dyn ConvexShape<U2>>,
-    SB: Iterator<Item = &'a dyn ConvexShape<U2>>,
-{
-    fn check_collision(self, other: SB) -> bool {
-        // cache other's shapes if needed
-        let other_shapes = OtherShapeCache::from(other);
-        // fun quadratic time op
-        for self_shape in self {
-            match &other_shapes {
-                OtherShapeCache::Zero => return false,
-                OtherShapeCache::Single(s) => return gjk_single(self_shape, *s),
-                OtherShapeCache::Many(v) => {
-                    for other_shape in v.iter() {
-                        if gjk_single(self_shape, *other_shape) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        false
-    }
-}
-
-enum OtherShapeCache<'a> {
-    Zero,
-    Single(&'a dyn ConvexShape<U2>),
-    Many(Vec<&'a dyn ConvexShape<U2>>),
-}
-
-impl<'a, I> From<I> for OtherShapeCache<'a>
-where
-    I: Iterator<Item = &'a dyn ConvexShape<U2>>,
-{
-    fn from(mut iter: I) -> Self {
-        match iter.size_hint() {
-            (0, Some(0)) => OtherShapeCache::Zero,
-            (1, Some(1)) => OtherShapeCache::Single(iter.next().unwrap()),
-            _ => OtherShapeCache::Many(iter.collect()),
-        }
-    }
-}
-
-fn gjk_single(a: &dyn ConvexShape<U2>, b: &dyn ConvexShape<U2>) -> bool
-where
-    DefaultAllocator: Allocator<f64, U2> + Allocator<f64, U3>,
+    SA: ConvexShape<U2, SPA>,
+    SPA: SupportProvider<U2>,
+    SB: ConvexShape<U2, SPB>,
+    SPB: SupportProvider<U2>,
 {
     let a_sp = a.support_provider();
     let b_sp = b.support_provider();
@@ -76,7 +22,7 @@ where
         }
     };
 
-    let first_point = support(&*a_sp, &*b_sp, d).to_homogeneous();
+    let first_point = support(&a_sp, &b_sp, d).to_homogeneous();
     let origin: Point3<f64> = Point3::origin();
     d = match Unit::try_new(
         Vector2::from_homogeneous(&origin.coords - &first_point).unwrap(),
@@ -92,7 +38,7 @@ where
     let mut simplex = Simplex::Point(first_point);
 
     loop {
-        let new_point = support(&*a_sp, &*b_sp, d.clone());
+        let new_point = support(&a_sp, &b_sp, d.clone());
         if new_point.dot(&d) < 0.0 {
             // Failed to cross the origin line
             return false;
