@@ -2,17 +2,12 @@ extern crate nalgebra as na;
 
 use na::{Point2, U2};
 
-use crate::circle::Circle;
-use crate::gjk::GJK;
-use crate::rect::Rect;
-use crate::shape::ConvexShape;
+use supercollider::circle::Circle;
+use supercollider::gjk::GJK;
+use supercollider::rect::Rect;
+use supercollider::shape::ConvexShape;
 use std::iter::Once;
 use std::time::Instant;
-
-mod circle;
-mod gjk;
-mod rect;
-mod shape;
 
 fn main() {
     let random_shapes = (0..10_000_000).into_iter()

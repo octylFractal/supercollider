@@ -6,7 +6,7 @@ use crate::shape::{ConvexShape, SupportProvider};
 
 pub struct Circle {
     center: Point2<f64>,
-    radius: f64,
+    pub radius: f64,
 }
 
 impl Circle {
